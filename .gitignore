@@ -1,0 +1,13 @@
+# executables
+*.exe
+*.out
+*.o
+
+# build folders
+build/
+
+# vscode
+.vscode/
+
+# windows
+*.dll
