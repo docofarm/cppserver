@@ -5,9 +5,99 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <thread>
 
 #pragma comment(lib, "ws2_32.lib")
 
+void handleClient(SOCKET clientSock){
+    char buffer[2048];
+
+    int received = recv(clientSock, buffer, sizeof(buffer) -1, 0);
+    
+    if(received > 0)
+    {
+        buffer[received] = '\0';
+
+        std::string request(buffer);
+
+        std::cout << "\n ---- New Client ----\n"; 
+        std::cout << request << "\n";
+        
+        const char* body = "Hello World";
+
+        std::string response = 
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: " + std::to_string(strlen(body)) + "\r\n"
+            "Connection: close\r\n"
+            "\r\n" +
+            std::string(body);
+
+        send(clientSock, response.c_str(), response.size(), 0);
+    }
+
+    closesocket(clientSock);
+}
+
+int main(){
+    WSADATA wsaData;
+
+    if(WSAStartup(MAKEWORD(2,2), &wsaData) != 0)
+    {
+        std::cout << "WSAStarup failed.\n";
+        return 1;
+    }
+
+    SOCKET listenSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    
+    if(listenSock == INVALID_SOCKET)
+    {
+        std::cout << "Socket creation failed.\n";
+        WSACleanup();
+        return 1;
+    }
+
+    sockaddr_in serverAddr;
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(8080);
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+
+    if(bind(listenSock, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
+    {
+        std::cout << "Bind failed.\n";
+        closesocket(listenSock);
+        WSACleanup();
+        return 1;
+    }
+
+    if(listen(listenSock, SOMAXCONN) == SOCKET_ERROR)
+    {
+        std::cout << "Listen failed.\n";
+        closesocket(listenSock);
+        WSACleanup();
+        return 1;
+    }
+
+    std::cout << "Server listening on port 8080\n";
+
+    while(true)
+    {
+        SOCKET clientSock = accept(listenSock, nullptr, nullptr);
+
+        if(clientSock == INVALID_SOCKET)
+            continue;
+        
+        std::thread t(handleClient, clientSock);
+        t.detach();
+    }
+
+    closesocket(listenSock);
+    WSACleanup();
+
+    return 0;
+}
+
+/*
 int main(){
     WSADATA wsa;
     WSAStartup(MAKEWORD(2,2), &wsa);
@@ -116,3 +206,5 @@ int main(){
     std::cin.get();
     return 0;
 }
+
+*/
