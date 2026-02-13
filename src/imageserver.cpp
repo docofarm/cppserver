@@ -6,14 +6,25 @@
 #include <string>
 #include <cstring>
 #include <thread>
+#include <mutex>
 
 #pragma comment(lib, "ws2_32.lib")
 
+std::mutex mtx;
+int clientCount = 0;
+
 void handleClient(SOCKET clientSock){
+
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        clientCount++;
+        std::cout << "Client Connect | Current Client: " << clientCount << "\n";
+    }
+
     char buffer[2048];
 
     int received = recv(clientSock, buffer, sizeof(buffer) -1, 0);
-    
+
     if(received > 0)
     {
         buffer[received] = '\0';
@@ -37,6 +48,12 @@ void handleClient(SOCKET clientSock){
     }
 
     closesocket(clientSock);
+
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        clientCount--;
+        std::cout << "Client Disconnected | Current Client: " << clientCount << "\n";
+    }
 }
 
 int main(){
