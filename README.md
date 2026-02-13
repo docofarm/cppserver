@@ -12,6 +12,12 @@
     바이너리 파일 처리
 
 
+- 2/13일
+    - mutex를 사용했음.(Mutual Exclusion(상호배제)) race condition을 방지할 때 사용하는 도구. 멀티스레딩을 할 때 한번에 한 번만 들어갈 수 있게 조절하는 기능을 가진다고 함.
+    - lock_guard. 자동 잠금 장치
+
+
+
 ## 컴파일
     g++ imageserver.cpp -o server.exe -lws2_32
 
