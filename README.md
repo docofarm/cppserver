@@ -12,10 +12,13 @@
     바이너리 파일 처리
 
 
-- 2/13일
+- 2/13
     - mutex를 사용했음.(Mutual Exclusion(상호배제)) race condition을 방지할 때 사용하는 도구. 멀티스레딩을 할 때 한번에 한 번만 들어갈 수 있게 조절하는 기능을 가진다고 함.
     - lock_guard. 자동 잠금 장치
 
+- 2/14
+    - header 파싱 부분 공부가 더 필요. istringstream, npos, substr 등
+    - 간단한 path 기반 라우팅 추가 
 
 
 ## 컴파일

@@ -7,11 +7,27 @@
 #include <cstring>
 #include <thread>
 #include <mutex>
+#include <sstream>
+#include <map>
 
 #pragma comment(lib, "ws2_32.lib")
 
 std::mutex mtx;
 int clientCount = 0;
+
+std::string makeResponse(
+    const std::string& status,
+    const std::string& contentType,
+    const std::string& body
+){
+    return 
+        "HTTP/1.1 "+ status + "\r\n"
+        "Content-Type: " + contentType + "\r\n"
+        "Content-Length: " + std::to_string(body.size()) + "\r\n"
+        "Connection: close\r\n"
+        "\r\n" + 
+        body;
+}
 
 void handleClient(SOCKET clientSock){
 
@@ -31,6 +47,109 @@ void handleClient(SOCKET clientSock){
 
         std::string request(buffer);
 
+        //1. request line parshing
+        std::istringstream requestStream(request);
+        std::string requestLine;
+
+        std::getline(requestStream, requestLine);
+
+        // remove \r
+        if(!requestLine.empty() && requestLine.back() == '\r')
+        {
+            requestLine.pop_back();
+        }
+        std::istringstream lineStream(requestLine);
+
+        std::string method;
+        std::string path;
+        std::string version;
+
+        lineStream >> method >> path >> version;
+
+        std::cout << "Method: " << method << "\n";
+        std::cout << "Path: " << path << "\n";
+        std::cout << "Version: " << version << "\n";
+
+        //2. header parshing
+        std::map<std::string, std::string> headers;
+        std::string headerLine;
+
+        while (std::getline(requestStream, headerLine)){
+            if(headerLine == "\r" || headerLine.empty()){
+                break;
+            }
+
+            if(headerLine.back() == '\r')
+            {
+                headerLine.pop_back();
+            }
+
+            size_t colonPos = headerLine.find(":");
+            if(colonPos != std::string::npos)
+            {
+                std::string key = headerLine.substr(0, colonPos);
+                std::string value = headerLine.substr(colonPos + 1);
+
+                if(!value.empty() && value[0] == ' '){
+                    value.erase(0,1);
+                }
+                headers[key] = value;
+            }
+        }
+
+        if(headers.find("Host") != headers.end()){
+            std::cout << "Host Header: " << headers["Host"] << "\n";
+        }
+
+        std::string body;
+        std::string response;
+
+        if(method != "GET")
+        {
+            response = makeResponse(
+                "405 Method Not Allowed",
+                "text/plain",
+                ""
+           );
+        }
+        else{
+            if(path == "/"){
+                response = makeResponse(
+                    "200 OK",
+                    "text/plain",
+                    "Welcome My Server😊"
+                );
+            }else if(path == "/first"){
+                response = makeResponse(
+                    "200 OK",
+                    "text/plain",
+                    "This is Page😎"
+                );
+            }else{
+                response = makeResponse(
+                    "404 Not Found",
+                    "text/plain",
+                    "Not Found"
+                );
+            }
+        }
+        /*
+        if(method == "GET" && path == "/"){
+            body = "Hello World";
+        }
+        else{
+            body = "404 Not Found";
+        }
+        
+        response = 
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: " + std::to_string(body.size()) + "\r\n"
+            "Connection: close\r\n"
+            "\r\n" + 
+            body;
+        */
+        /*
         std::cout << "\n ---- New Client ----\n"; 
         std::cout << request << "\n";
         
@@ -43,7 +162,7 @@ void handleClient(SOCKET clientSock){
             "Connection: close\r\n"
             "\r\n" +
             std::string(body);
-
+        */
         send(clientSock, response.c_str(), response.size(), 0);
     }
 
