@@ -20,6 +20,9 @@
     - header 파싱 부분 공부가 더 필요. istringstream, npos, substr 등
     - 간단한 path 기반 라우팅 추가 
 
+- 2/16
+    - body 파싱, 간단한 로그인 기능 추가
+    - 정해진 id, pw를 POST 했을때 성공 200, 실패 401
 
 ## 컴파일
     g++ imageserver.cpp -o server.exe -lws2_32
