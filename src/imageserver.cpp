@@ -29,6 +29,73 @@ std::string makeResponse(
         body;
 }
 
+std::string routeRequest(
+    const std::string& method,
+    const std::string& path,
+    const std::string& body
+)
+{
+    if(method == "GET" && path == "/")
+    {
+        return makeResponse(
+            "200 OK",
+            "text/plain",
+            "welcome my server"
+        );
+    }
+    else if(method == "GET" && path == "/first")
+    {
+        return makeResponse(
+            "200 OK",
+            "text/plain",
+            "This is Page"
+        );
+    }else if(method == "POST" && path == "/login")
+    {
+        std::string id;
+        std::string pw;
+
+        size_t idPos = body.find("id=");
+        size_t pwPos = body.find("pw=");
+
+        if(idPos != std::string::npos && pwPos != std::string::npos)
+        {
+            size_t idEnd = body.find("&", idPos);
+            id = body.substr(idPos + 3, idEnd - (idPos + 3));
+            pw = body.substr(pwPos +3);
+        }
+
+        std::string json;
+
+        if(id == "admin" && pw == "1234")
+        {
+            json = "{\"status\":\"success\",\"message\":\"login success\"}";
+            return makeResponse("200 OK", "application/json", json);
+        }
+        else
+        {
+            json = "{\"status\":\"fail\",\"message\":\"invalid credential\"}";
+            return makeResponse("401 Unauthorized", "application/json", json);
+        }
+    }
+    else if(method == "GET" || method == "POST")
+    {
+        return makeResponse(
+            "404 Not found",
+            "text/plain",
+            "Not found"
+        );
+    }
+    else
+    {
+        return makeResponse(
+            "405 Method Not Allowed",
+            "text/plain",
+            ""
+        );
+    }
+}
+
 void handleClient(SOCKET clientSock){
 
     {
@@ -116,56 +183,7 @@ void handleClient(SOCKET clientSock){
             std::cout << "Body: "<< body << "\n";
         }
 
-        if(method == "GET" && path == "/"){
-            response = makeResponse(
-                "200 OK",
-                "text/plain",
-                "Welcome My Server😊"
-            );
-        }else if(method == "GET" && path == "/first"){
-            response = makeResponse(
-                "200 OK",
-                "text/plain",
-                "This is Page😎"
-            );
-        }else if(method == "POST" && path == "/login"){
-
-            std::string id;
-            std::string pw;
-
-            size_t idPos = body.find("id=");
-            size_t pwPos = body.find("pw=");
-
-            if(idPos != std::string::npos && pwPos != std::string::npos)
-            {
-                size_t idEnd = body.find("&", idPos);
-                id = body.substr(idPos + 3, idEnd - (idPos + 3));
-                pw = body.substr(pwPos + 3);
-            }
-
-            std::string json;
-
-            if(id == "admin" && pw == "1234")
-            {
-                json = "{\"status\":\"success\",\"message\":\"login success\"}";
-                response = makeResponse("200 OK", "application/json", json);
-            }else{
-                json = "{\"status\":\"fail\",\"message\":\"invaild credential\"}";
-                response = makeResponse("401 Unauthorized", "application/json", json);
-            }
-        }else if(method == "GET" || method == "POST"){
-            response = makeResponse(
-                "404 Not Found",
-                "text/plain",
-                "Not Found"
-            );
-        }else{
-            response = makeResponse(
-                "405 Method Not Allowed",
-                "text/plain",
-                ""
-            );
-        }
+        response = routeRequest(method, path, body);
 
         send(clientSock, response.c_str(), response.size(), 0);
     }

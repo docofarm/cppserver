@@ -24,6 +24,9 @@
     - body 파싱, 간단한 로그인 기능 추가
     - 정해진 id, pw를 POST 했을때 성공 200, 실패 401
 
+- 2/17
+    - handleClient 함수에서 route 부분 분리
+
 ## 컴파일
     g++ imageserver.cpp -o server.exe -lws2_32
 
