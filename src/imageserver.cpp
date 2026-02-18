@@ -9,8 +9,13 @@
 #include <mutex>
 #include <sstream>
 #include <map>
+#include <functional>
 
 #pragma comment(lib, "ws2_32.lib")
+
+using Handler = std::function<std::string(const std::string&)>;
+
+std::map<std::string, Handler> router;
 
 std::mutex mtx;
 int clientCount = 0;
@@ -35,65 +40,19 @@ std::string routeRequest(
     const std::string& body
 )
 {
-    if(method == "GET" && path == "/")
-    {
-        return makeResponse(
-            "200 OK",
-            "text/plain",
-            "welcome my server"
-        );
-    }
-    else if(method == "GET" && path == "/first")
-    {
-        return makeResponse(
-            "200 OK",
-            "text/plain",
-            "This is Page"
-        );
-    }else if(method == "POST" && path == "/login")
-    {
-        std::string id;
-        std::string pw;
+    std::string key = method + " " + path;
 
-        size_t idPos = body.find("id=");
-        size_t pwPos = body.find("pw=");
-
-        if(idPos != std::string::npos && pwPos != std::string::npos)
-        {
-            size_t idEnd = body.find("&", idPos);
-            id = body.substr(idPos + 3, idEnd - (idPos + 3));
-            pw = body.substr(pwPos +3);
-        }
-
-        std::string json;
-
-        if(id == "admin" && pw == "1234")
-        {
-            json = "{\"status\":\"success\",\"message\":\"login success\"}";
-            return makeResponse("200 OK", "application/json", json);
-        }
-        else
-        {
-            json = "{\"status\":\"fail\",\"message\":\"invalid credential\"}";
-            return makeResponse("401 Unauthorized", "application/json", json);
-        }
-    }
-    else if(method == "GET" || method == "POST")
+    if(router.find(key) != router.end())
     {
-        return makeResponse(
-            "404 Not found",
-            "text/plain",
-            "Not found"
-        );
+        return router[key](body);
     }
-    else
+
+    if(method == "GET" || method == "POST")
     {
-        return makeResponse(
-            "405 Method Not Allowed",
-            "text/plain",
-            ""
-        );
+        return makeResponse("404 not found", "text/plain", "Not found");
     }
+
+    return makeResponse("405 Method not Allowed", "text/plain", "");
 }
 
 void handleClient(SOCKET clientSock){
@@ -198,6 +157,35 @@ void handleClient(SOCKET clientSock){
 }
 
 int main(){
+    router["GET /"] = [](const std::string& body){
+        return makeResponse("200 OK", "text/plain", "Welcome my Server");
+    };
+    router["GET /first"] = [](const std::string& body){
+        return makeResponse("200 OK", "text/plain", "First Page");
+    };
+    router["POST /login"] = [](const std::string& body){
+        std::string id;
+        std::string pw;
+
+        size_t idPos = body.find("id=");
+        size_t pwPos = body.find("pw=");
+
+        if(idPos != std::string::npos && pwPos != std::string::npos){
+            size_t idEnd = body.find("&", idPos);
+            id = body.substr(idPos + 3, idEnd - (idPos + 3));
+            pw = body.substr(pwPos + 3);
+        }
+
+        if(id == "admin" && pw=="1234")
+        {
+            return makeResponse("200 Ok", "application/json", "{\"status\":\"login success\",\"message\":\"login success\"}");
+        }
+        else
+        {
+            return makeResponse("401 unauthorized", "application/json", "{\"status\":\"login failed\",\"message\":\"login failed\"}");
+        }
+    };
+
     WSADATA wsaData;
 
     if(WSAStartup(MAKEWORD(2,2), &wsaData) != 0)
