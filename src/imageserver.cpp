@@ -10,6 +10,7 @@
 #include <sstream>
 #include <map>
 #include <functional>
+#include <unordered_map>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -19,6 +20,21 @@ std::map<std::string, Handler> router;
 
 std::mutex mtx;
 int clientCount = 0;
+
+struct HttpRequest {
+    std::string method;
+    std::string path;
+    std::string version;
+    std::unordered_map<std::string, std::string> headers;
+    std::string body;
+};
+
+struct HttpResponse{
+    int status;
+    std::string statusText;
+    std::unordered_map<std::string, std::string> headers;
+    std::string body;
+};
 
 std::string makeResponse(
     const std::string& status,
@@ -53,6 +69,63 @@ std::string routeRequest(
     }
 
     return makeResponse("405 Method not Allowed", "text/plain", "");
+};
+
+HttpRequest parseHttpRequest(const std::string& raw)
+{
+    HttpRequest req;
+
+    std::istringstream requestStream(raw);
+    std::string requestLine;
+
+    //1. request Line
+    std::getline(requestStream, requestLine);
+
+    if(!requestLine.empty() && requestLine.back() == '\r')
+        requestLine.pop_back();
+
+    std::istringstream lineStream(requestLine);
+    lineStream >> req.method >> req.path >> req.version;
+
+    //2. Header
+    std::string headerLine;
+
+    while(std::getline(requestStream, headerLine))
+    {
+        if(headerLine == "\r" || headerLine.empty())
+        {
+            break;
+        }
+
+        if(headerLine.back() == '\r')
+        {
+            headerLine.pop_back();
+        }
+
+        size_t colonPos = headerLine.find(":");
+        if(colonPos != std::string::npos)
+        {
+            std::string key = headerLine.substr(0, colonPos);
+            std::string value = headerLine.substr(colonPos + 1);
+
+            if(!value.empty() && value[0] == ' ')
+            {
+                value.erase(0,1);
+            }
+
+            req.headers[key] = value;
+        }
+    }
+
+    //3. body
+    if(req.headers.find("Content-Length") != req.headers.end())
+    {
+        int contentLength = std::stoi(req.headers["Content-Length"]);
+        req.body.resize(contentLength);
+        requestStream.read(&req.body[0], contentLength);
+    }
+
+    return req;
 }
 
 void handleClient(SOCKET clientSock){
@@ -71,79 +144,26 @@ void handleClient(SOCKET clientSock){
     {
         buffer[received] = '\0';
 
-        std::string request(buffer);
-
-        //1. request line parshing
-        std::istringstream requestStream(request);
-        std::string requestLine;
-
-        std::getline(requestStream, requestLine);
-
-        // remove \r
-        if(!requestLine.empty() && requestLine.back() == '\r')
-        {
-            requestLine.pop_back();
-        }
-        std::istringstream lineStream(requestLine);
-
-        std::string method;
-        std::string path;
-        std::string version;
-
-        lineStream >> method >> path >> version;
-
-        std::cout << "Method: " << method << "\n";
-        std::cout << "Path: " << path << "\n";
-        std::cout << "Version: " << version << "\n";
-
-        //2. header parshing
-        std::map<std::string, std::string> headers;
-        std::string headerLine;
-
-        while (std::getline(requestStream, headerLine)){
-            if(headerLine == "\r" || headerLine.empty()){
-                break;
-            }
-
-            if(headerLine.back() == '\r')
-            {
-                headerLine.pop_back();
-            }
-
-            size_t colonPos = headerLine.find(":");
-            if(colonPos != std::string::npos)
-            {
-                std::string key = headerLine.substr(0, colonPos);
-                std::string value = headerLine.substr(colonPos + 1);
-
-                if(!value.empty() && value[0] == ' '){
-                    value.erase(0,1);
-                }
-                headers[key] = value;
-            }
-        }
-
-        if(headers.find("Host") != headers.end()){
-            std::cout << "Host Header: " << headers["Host"] << "\n";
-        }
-
-        std::string body;
+        std::string rawRequest(buffer);
         std::string response;
 
-        //3. body parsing
-        if(headers.find("Content-Length") != headers.end())
+        HttpRequest req = parseHttpRequest(rawRequest);
+
+        std::cout << "Method: " << req.method << "\n";
+        std::cout << "Path: " << req.path << "\n";
+        std::cout << "Version: " << req.version << "\n";
+
+        if(req.headers.find("Host") != req.headers.end())
         {
-            int contentLength = std::stoi(headers["Content-Length"]);
-            body.resize(contentLength);
-            requestStream.read(&body[0], contentLength);
+            std::cout << "Host Header: " << req.headers["Host"] << "\n";
+        }
+        if(!req.body.empty())
+        {
+            std::cout << "Body: " << req.body << "\n";
         }
 
-        if(!body.empty()){
-            std::cout << "Body: "<< body << "\n";
-        }
-
-        response = routeRequest(method, path, body);
-
+        response = routeRequest(req.method, req.path, req.body);
+        
         send(clientSock, response.c_str(), response.size(), 0);
     }
 
