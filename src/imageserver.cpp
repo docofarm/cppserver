@@ -14,10 +14,6 @@
 
 #pragma comment(lib, "ws2_32.lib")
 
-using Handler = std::function<std::string(const std::string&)>;
-
-std::map<std::string, Handler> router;
-
 std::mutex mtx;
 int clientCount = 0;
 
@@ -30,11 +26,17 @@ struct HttpRequest {
 };
 
 struct HttpResponse{
-    int status;
-    std::string statusText;
-    std::unordered_map<std::string, std::string> headers;
+    std::string version = "HTTP/1.1";
+    int statusCode = 200;
+    std::string statusMessage = "OK";
+    std::map<std::string, std::string> headers;
     std::string body;
 };
+
+using Handler = std::function<HttpResponse(const HttpRequest&)>;
+
+std::map<std::string, Handler> router;
+
 
 std::string makeResponse(
     const std::string& status,
@@ -50,26 +52,24 @@ std::string makeResponse(
         body;
 }
 
-std::string routeRequest(
-    const std::string& method,
-    const std::string& path,
-    const std::string& body
-)
+HttpResponse routeRequest(const HttpRequest& req)
 {
-    std::string key = method + " " + path;
+    std::string key = req.method + " " + req.path;
 
     if(router.find(key) != router.end())
     {
-        return router[key](body);
+        return router[key](req);
     }
 
-    if(method == "GET" || method == "POST")
-    {
-        return makeResponse("404 not found", "text/plain", "Not found");
-    }
+    HttpResponse res;
+    res.statusCode = 404;
+    res.statusMessage ="Not Found";
+    res.body = "404 Not Found";
+    res.headers["Content-Type"] = "text/plain";
+    res.headers["Content-Length"] = std::to_string(res.body.size());
 
-    return makeResponse("405 Method not Allowed", "text/plain", "");
-};
+    return res;
+}
 
 HttpRequest parseHttpRequest(const std::string& raw)
 {
@@ -128,6 +128,27 @@ HttpRequest parseHttpRequest(const std::string& raw)
     return req;
 }
 
+//패킷 생성기
+std::string serializeResponse(const HttpResponse& res)
+{
+    std::ostringstream responseStream;
+
+    responseStream << res.version << " "
+                    << res.statusCode << " "
+                    << res.statusMessage << "\r\n";
+
+    for(const auto& header : res.headers)
+    {
+        responseStream << header.first << ": "
+                        << header.second << "\r\n";
+    }
+
+    responseStream << "\r\n";
+    responseStream << res.body;
+
+    return responseStream.str();
+}
+
 void handleClient(SOCKET clientSock){
 
     {
@@ -162,9 +183,11 @@ void handleClient(SOCKET clientSock){
             std::cout << "Body: " << req.body << "\n";
         }
 
-        response = routeRequest(req.method, req.path, req.body);
-        
-        send(clientSock, response.c_str(), response.size(), 0);
+        HttpResponse res = routeRequest(req);
+
+        std::string responseStr = serializeResponse(res);
+
+        send(clientSock, responseStr.c_str(), responseStr.size(), 0);
     }
 
     closesocket(clientSock);
@@ -177,35 +200,57 @@ void handleClient(SOCKET clientSock){
 }
 
 int main(){
-    router["GET /"] = [](const std::string& body){
-        return makeResponse("200 OK", "text/plain", "Welcome my Server");
+    router["GET /"] = [](const HttpRequest& req)
+    {
+        HttpResponse res;
+        res.body = "Hello My server";
+        res.headers["Content-Type"] = "text/plain";
+        res.headers["Content-Length"] = std::to_string(res.body.size());
+        return res;
     };
-    router["GET /first"] = [](const std::string& body){
-        return makeResponse("200 OK", "text/plain", "First Page");
+    router["GET /first"] = [](const HttpRequest& req)
+    {
+        HttpResponse res;
+        res.body = "First Page";
+        res.headers["Content-Type"] = "text/plain";
+        res.headers["Content-Length"] = std::to_string(res.body.size());
+        return res;
     };
-    router["POST /login"] = [](const std::string& body){
+    router["POST /login"] = [](const HttpRequest& req)
+    {
+        HttpResponse res;
+        
         std::string id;
         std::string pw;
 
-        size_t idPos = body.find("id=");
-        size_t pwPos = body.find("pw=");
+        size_t idPos = req.body.find("id=");
+        size_t pwPos = req.body.find("pw=");
 
         if(idPos != std::string::npos && pwPos != std::string::npos){
-            size_t idEnd = body.find("&", idPos);
-            id = body.substr(idPos + 3, idEnd - (idPos + 3));
-            pw = body.substr(pwPos + 3);
+            size_t idEnd = req.body.find("&", idPos);
+            id = req.body.substr(idPos + 3, idEnd - (idPos + 3));
+            pw = req.body.substr(pwPos + 3);
         }
 
         if(id == "admin" && pw=="1234")
         {
-            return makeResponse("200 Ok", "application/json", "{\"status\":\"login success\",\"message\":\"login success\"}");
+            res.statusCode = 200;
+            res.statusMessage = "OK";
+            res.body = "{\"status\":\"login success\",\"message\":\"login success\"}";
         }
         else
         {
-            return makeResponse("401 unauthorized", "application/json", "{\"status\":\"login failed\",\"message\":\"login failed\"}");
+            res.statusCode = 401;
+            res.statusMessage = "Unauthorized";
+            res.body = "{\"status\":\"login failed\",\"message\":\"login failed\"}";
         }
-    };
 
+        res.headers["Content-Type"] = "application/json";
+        res.headers["Content-Length"] = std::to_string(res.body.size());
+
+        return res;
+    };
+    
     WSADATA wsaData;
 
     if(WSAStartup(MAKEWORD(2,2), &wsaData) != 0)

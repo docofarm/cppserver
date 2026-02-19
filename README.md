@@ -28,6 +28,8 @@
     - handleClient 함수에서 route 부분 분리
 - 2/19
     - HttpRequest 리팩토링
+- 2/20
+    - HttpResponse 리팩토링
 
 ## 컴파일
     g++ imageserver.cpp -o server.exe -lws2_32
