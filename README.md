@@ -30,6 +30,8 @@
     - HttpRequest 리팩토링
 - 2/20
     - HttpResponse 리팩토링
+- 2/21
+    - html파일로 페이지 띄우기
 
 ## 컴파일
     g++ imageserver.cpp -o server.exe -lws2_32

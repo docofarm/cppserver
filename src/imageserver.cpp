@@ -11,11 +11,25 @@
 #include <map>
 #include <functional>
 #include <unordered_map>
+#include <fstream>
 
 #pragma comment(lib, "ws2_32.lib")
 
 std::mutex mtx;
 int clientCount = 0;
+
+std::string readFile(const std::string& path)
+{
+    std::ifstream file(path, std::ios::binary);
+    if(!file.is_open())
+    {
+        return "";
+    }
+
+    std::ostringstream ss;
+    ss << file.rdbuf();
+    return ss.str();
+}
 
 struct HttpRequest {
     std::string method;
@@ -202,9 +216,20 @@ void handleClient(SOCKET clientSock){
 int main(){
     router["GET /"] = [](const HttpRequest& req)
     {
+        std::string content = readFile("static/index.html");
         HttpResponse res;
-        res.body = "Hello My server";
-        res.headers["Content-Type"] = "text/plain";
+
+        if(content.empty())
+        {
+            res.statusCode = 404;
+            res.statusMessage = "Not Found";
+            res.body = "File not Found";
+            res.headers["Content-Type"] = "text/plain";
+        }
+        else{
+            res.body = content;
+            res.headers["Content-Type"] = "text/html";
+        }
         res.headers["Content-Length"] = std::to_string(res.body.size());
         return res;
     };
