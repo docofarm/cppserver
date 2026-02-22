@@ -11,24 +11,38 @@
 #include <map>
 #include <functional>
 #include <unordered_map>
-#include <fstream>
 
 #pragma comment(lib, "ws2_32.lib")
 
 std::mutex mtx;
 int clientCount = 0;
 
-std::string readFile(const std::string& path)
+std::string readFile(const std::string& path, bool& success)
 {
     std::ifstream file(path, std::ios::binary);
     if(!file.is_open())
     {
+        success = false;
         return "";
     }
 
     std::ostringstream ss;
     ss << file.rdbuf();
+
+    success = true;
     return ss.str();
+}
+
+std::string getContentType(const std::string& path)
+{
+    if(path.find(".html") != std::string::npos) return "text/html";
+    if(path.find(".css") != std::string::npos) return "text/css";
+    if(path.find(".js") != std::string::npos) return "application/javascript";
+    if(path.find(".png") != std::string::npos) return "image/png";
+    if(path.find(".jpg") != std::string::npos || path.find(".jpeg") != std::string::npos) return "image/jpeg";
+    if(path.find(".gif") != std::string::npos) return "image/gif";
+    
+    return "text/plain";
 }
 
 struct HttpRequest {
@@ -73,6 +87,40 @@ HttpResponse routeRequest(const HttpRequest& req)
     if(router.find(key) != router.end())
     {
         return router[key](req);
+    }
+
+    if(req.method == "GET")
+    {
+        //디렉토리 트레버셜 방어 ".."  경로 탈출 공격
+        if(req.path.find("..") != std::string::npos)
+        {
+            HttpResponse res;
+            res.statusCode = 403;
+            res.statusMessage = "Forbidden";
+            res.body = "403 Forbidden";
+            res.headers["Content-Type"] = "text/plain";
+            res.headers["Content-Length"] = std::to_string(res.body.size());
+            return res;
+        }
+        HttpResponse res;
+
+        bool fileExist = false;
+        std::string filePath = "static" + req.path;
+
+        if(req.path == "/")
+        {
+            filePath = "static/index.html";
+        }
+
+        std::string content = readFile(filePath, fileExist);
+        
+        if(fileExist)
+        {
+            res.body = content;
+            res.headers["Content-Type"] = getContentType(filePath);
+            res.headers["Content-Length"] = std::to_string(res.body.size());
+            return res;
+        }
     }
 
     HttpResponse res;
@@ -200,7 +248,7 @@ void handleClient(SOCKET clientSock){
         HttpResponse res = routeRequest(req);
 
         std::string responseStr = serializeResponse(res);
-
+        
         send(clientSock, responseStr.c_str(), responseStr.size(), 0);
     }
 
@@ -216,7 +264,8 @@ void handleClient(SOCKET clientSock){
 int main(){
     router["GET /"] = [](const HttpRequest& req)
     {
-        std::string content = readFile("static/index.html");
+        bool ok = false;
+        std::string content = readFile("static/index.html", ok);
         HttpResponse res;
 
         if(content.empty())
