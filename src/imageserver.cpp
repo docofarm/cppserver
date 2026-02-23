@@ -11,11 +11,64 @@
 #include <map>
 #include <functional>
 #include <unordered_map>
+#include <random>
 
 #pragma comment(lib, "ws2_32.lib")
 
+struct HttpRequest {
+    std::string method;
+    std::string path;
+    std::string version;
+    std::unordered_map<std::string, std::string> headers;
+    std::string body;
+};
+
+struct HttpResponse{
+    std::string version = "HTTP/1.1";
+    int statusCode = 200;
+    std::string statusMessage = "OK";
+    std::map<std::string, std::string> headers;
+    std::string body;
+};
+
 std::mutex mtx;
 int clientCount = 0;
+
+std::unordered_map<std::string, std::string> sessions;
+std::mutex sessionMutex;
+
+std::string generateSessionId()
+{
+    static std::mt19937 rng(std::random_device{}());
+    static std::uniform_int_distribution<int> dist(0, 15);
+
+    std::string sessionId;
+    const char* hex = "0123456789abcdef";
+
+    for(int i = 0; i < 32; i++)
+    {
+        sessionId += hex[dist(rng)];
+    }
+
+    return sessionId;
+}
+
+std::string getSessionIdFormCookie(const HttpRequest& req)
+{
+    auto it = req.headers.find("Cookie");
+    if(it == req.headers.end())
+    {
+        return "";
+    }
+    std::string cookie = it->second;
+
+    size_t pos = cookie.find("SESSIONID=");
+    if(pos == std::string::npos)
+    {
+        return "";
+    }
+    return cookie.substr(pos + 10);
+}
 
 std::string readFile(const std::string& path, bool& success)
 {
@@ -45,21 +98,6 @@ std::string getContentType(const std::string& path)
     return "text/plain";
 }
 
-struct HttpRequest {
-    std::string method;
-    std::string path;
-    std::string version;
-    std::unordered_map<std::string, std::string> headers;
-    std::string body;
-};
-
-struct HttpResponse{
-    std::string version = "HTTP/1.1";
-    int statusCode = 200;
-    std::string statusMessage = "OK";
-    std::map<std::string, std::string> headers;
-    std::string body;
-};
 
 using Handler = std::function<HttpResponse(const HttpRequest&)>;
 
@@ -248,7 +286,7 @@ void handleClient(SOCKET clientSock){
         HttpResponse res = routeRequest(req);
 
         std::string responseStr = serializeResponse(res);
-        
+        std::cout << "Body Length: " << req.body.size() << "\n";
         send(clientSock, responseStr.c_str(), responseStr.size(), 0);
     }
 
@@ -285,7 +323,22 @@ int main(){
     router["GET /first"] = [](const HttpRequest& req)
     {
         HttpResponse res;
-        res.body = "First Page";
+
+        std::string sessionId = getSessionIdFormCookie(req);
+        {
+            std::lock_guard<std::mutex> lock(sessionMutex);
+
+            if(sessions.find(sessionId) == sessions.end())
+            {
+                res.statusCode = 401;
+                res.statusMessage = "Unauthorized";
+                res.body = "Login required";
+                res.headers["Content-Type"] = "text/plain";
+                res.headers["Content-Length"] = std::to_string(res.body.size());
+                return res;
+            }
+        }
+        res.body = "First Page You Login Success";
         res.headers["Content-Type"] = "text/plain";
         res.headers["Content-Length"] = std::to_string(res.body.size());
         return res;
@@ -311,6 +364,13 @@ int main(){
             res.statusCode = 200;
             res.statusMessage = "OK";
             res.body = "{\"status\":\"login success\",\"message\":\"login success\"}";
+            std::string sessionId = generateSessionId();
+            {
+            std::lock_guard<std::mutex> lock(sessionMutex);
+            sessions[sessionId] = id;
+            }
+
+            res.headers["Set-Cookie"] = "SESSIONID=" + sessionId + "; Path=/; HttpOnly";
         }
         else
         {
