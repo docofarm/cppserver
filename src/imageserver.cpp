@@ -384,6 +384,28 @@ int main(){
 
         return res;
     };
+
+    router["GET /logout"] = [](const HttpRequest& req)
+    {
+        HttpResponse res;
+
+        std::string sessionId = getSessionIdFormCookie(req);
+
+        {
+            std::lock_guard<std::mutex> lock(sessionMutex);
+            sessions.erase(sessionId);
+        }
+
+        res.headers["Set-Cookie"] = "SESSIONID=; Path=/; HttpOnly; Max-Age=0";
+
+        res.statusCode = 302;
+        res.statusMessage = "Found";
+        res.headers["Location"] = "/login.html";
+        res.body = "";
+        res.headers["Content-Length"] = "0";
+
+        return res;
+    };
     
     WSADATA wsaData;
 
