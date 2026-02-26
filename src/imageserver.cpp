@@ -31,10 +31,16 @@ struct HttpResponse{
     std::string body;
 };
 
+struct Session
+{
+    std::string userId;
+    std::chrono::steady_clock::time_point expireTime;
+};
+
 std::mutex mtx;
 int clientCount = 0;
 
-std::unordered_map<std::string, std::string> sessions;
+std::unordered_map<std::string, Session> sessions;
 std::mutex sessionMutex;
 
 std::string generateSessionId()
@@ -328,11 +334,25 @@ int main(){
         {
             std::lock_guard<std::mutex> lock(sessionMutex);
 
-            if(sessions.find(sessionId) == sessions.end())
+            auto it = sessions.find(sessionId);
+
+            if(it == sessions.end())
             {
                 res.statusCode = 401;
                 res.statusMessage = "Unauthorized";
                 res.body = "Login required";
+                res.headers["Content-Type"] = "text/plain";
+                res.headers["Content-Length"] = std::to_string(res.body.size());
+                return res;
+            }
+            
+            if(std::chrono::steady_clock::now() > it -> second.expireTime)
+            {
+                sessions.erase(it);
+
+                res.statusCode = 401;
+                res.statusMessage = "Unauthorized";
+                res.body = "Session expired";
                 res.headers["Content-Type"] = "text/plain";
                 res.headers["Content-Length"] = std::to_string(res.body.size());
                 return res;
@@ -367,7 +387,10 @@ int main(){
             std::string sessionId = generateSessionId();
             {
             std::lock_guard<std::mutex> lock(sessionMutex);
-            sessions[sessionId] = id;
+            Session session;
+            session.userId = id;
+            session.expireTime = std::chrono::steady_clock::now() + std::chrono::minutes(1);
+            sessions[sessionId] = session;
             }
 
             res.headers["Set-Cookie"] = "SESSIONID=" + sessionId + "; Path=/; HttpOnly";
