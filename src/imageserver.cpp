@@ -305,6 +305,31 @@ void handleClient(SOCKET clientSock){
     }
 }
 
+void sessionClear()
+{
+    while(true)
+    {
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+
+        std::lock_guard<std::mutex> lock(sessionMutex);
+
+        auto now = std::chrono::steady_clock::now();
+
+        for(auto it = sessions.begin(); it != sessions.end(); )
+        {
+            if(now > it->second.expireTime)
+            {
+                std::cout << "Expired session removed\n";
+                it = sessions.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+}
+
 int main(){
     router["GET /"] = [](const HttpRequest& req)
     {
@@ -469,6 +494,9 @@ int main(){
     }
 
     std::cout << "Server listening on port 8080\n";
+
+    std::thread cleaner(sessionClear);
+    cleaner.detach();
 
     while(true)
     {

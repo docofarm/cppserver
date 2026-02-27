@@ -43,6 +43,8 @@
     - 로그아웃 추가
 - 2/26
     - 1분 뒤 세션 만료
+- 2/27
+    - 세션 클리너
 ## 컴파일
     g++ imageserver.cpp -o server.exe -lws2_32
 
