@@ -45,6 +45,8 @@
     - 1분 뒤 세션 만료
 - 2/27
     - 세션 클리너
+- 2/28
+    - 세션 리팩토링
 ## 컴파일
     g++ imageserver.cpp -o server.exe -lws2_32
 

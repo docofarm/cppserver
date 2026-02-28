@@ -12,6 +12,7 @@
 #include <functional>
 #include <unordered_map>
 #include <random>
+#include <chrono>
 
 #pragma comment(lib, "ws2_32.lib")
 
@@ -40,9 +41,6 @@ struct Session
 std::mutex mtx;
 int clientCount = 0;
 
-std::unordered_map<std::string, Session> sessions;
-std::mutex sessionMutex;
-
 std::string generateSessionId()
 {
     static std::mt19937 rng(std::random_device{}());
@@ -59,7 +57,76 @@ std::string generateSessionId()
     return sessionId;
 }
 
-std::string getSessionIdFormCookie(const HttpRequest& req)
+class SessionManager
+{
+private:
+    std::unordered_map<std::string, Session> sessions;
+    std::mutex sessionMutex;
+public:
+    std::string createSession(const std::string& userId)
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex);
+
+        std::string sessionId = generateSessionId();
+
+        Session session;
+        session.userId = userId;
+        session.expireTime = std::chrono::steady_clock::now() + std::chrono::minutes(1);
+
+        sessions[sessionId] = session;
+
+        return sessionId;
+    }
+
+    bool isValid(const std::string& sessionId)
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex);
+
+        auto it = sessions.find(sessionId);
+
+        if(it == sessions.end())
+        {
+            return false;
+        }
+        if(std::chrono::steady_clock::now() > it -> second.expireTime)
+        {
+            sessions.erase(it);
+            return false;
+        }
+
+        return true;
+    }
+
+    void remove(const std::string& sessionId)
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex);
+        sessions.erase(sessionId);
+    }
+
+    void cleanExpired()
+    {
+        std::lock_guard<std::mutex> lock(sessionMutex);
+
+        auto now = std::chrono::steady_clock::now();
+
+        for(auto it = sessions.begin(); it !=sessions.end();)
+        {
+            if(now > it-> second.expireTime)
+            {
+                std::cout << "Expired session removed\n";
+                it = sessions.erase(it);
+            }
+            else{
+                ++it;
+            }
+        }
+    }
+};
+
+SessionManager sessionManager;
+
+
+std::string getSessionIdFromCookie(const HttpRequest& req)
 {
     auto it = req.headers.find("Cookie");
     if(it == req.headers.end())
@@ -309,24 +376,8 @@ void sessionClear()
 {
     while(true)
     {
-        std::this_thread::sleep_for(std::chrono::seconds(10));
-
-        std::lock_guard<std::mutex> lock(sessionMutex);
-
-        auto now = std::chrono::steady_clock::now();
-
-        for(auto it = sessions.begin(); it != sessions.end(); )
-        {
-            if(now > it->second.expireTime)
-            {
-                std::cout << "Expired session removed\n";
-                it = sessions.erase(it);
-            }
-            else
-            {
-                ++it;
-            }
-        }
+        std::this_thread::sleep_for(std::chrono::seconds(30));
+        sessionManager.cleanExpired();
     }
 }
 
@@ -355,33 +406,16 @@ int main(){
     {
         HttpResponse res;
 
-        std::string sessionId = getSessionIdFormCookie(req);
+        std::string sessionId = getSessionIdFromCookie(req);
+        
+        if(!sessionManager.isValid(sessionId))
         {
-            std::lock_guard<std::mutex> lock(sessionMutex);
-
-            auto it = sessions.find(sessionId);
-
-            if(it == sessions.end())
-            {
-                res.statusCode = 401;
-                res.statusMessage = "Unauthorized";
-                res.body = "Login required";
-                res.headers["Content-Type"] = "text/plain";
-                res.headers["Content-Length"] = std::to_string(res.body.size());
-                return res;
-            }
-            
-            if(std::chrono::steady_clock::now() > it -> second.expireTime)
-            {
-                sessions.erase(it);
-
-                res.statusCode = 401;
-                res.statusMessage = "Unauthorized";
-                res.body = "Session expired";
-                res.headers["Content-Type"] = "text/plain";
-                res.headers["Content-Length"] = std::to_string(res.body.size());
-                return res;
-            }
+            res.statusCode = 401;
+            res.statusMessage = "Unauthorized";
+            res.body = "Login required or session expired";
+            res.headers["Content-Type"] = "text/plain";
+            res.headers["Content-Length"] = std::to_string(res.body.size());
+            return res;
         }
         res.body = "First Page You Login Success";
         res.headers["Content-Type"] = "text/plain";
@@ -409,14 +443,8 @@ int main(){
             res.statusCode = 200;
             res.statusMessage = "OK";
             res.body = "{\"status\":\"login success\",\"message\":\"login success\"}";
-            std::string sessionId = generateSessionId();
-            {
-            std::lock_guard<std::mutex> lock(sessionMutex);
-            Session session;
-            session.userId = id;
-            session.expireTime = std::chrono::steady_clock::now() + std::chrono::minutes(1);
-            sessions[sessionId] = session;
-            }
+           
+            std::string sessionId = sessionManager.createSession(id);
 
             res.headers["Set-Cookie"] = "SESSIONID=" + sessionId + "; Path=/; HttpOnly";
         }
@@ -437,12 +465,9 @@ int main(){
     {
         HttpResponse res;
 
-        std::string sessionId = getSessionIdFormCookie(req);
+        std::string sessionId = getSessionIdFromCookie(req);
 
-        {
-            std::lock_guard<std::mutex> lock(sessionMutex);
-            sessions.erase(sessionId);
-        }
+        sessionManager.remove(sessionId);
 
         res.headers["Set-Cookie"] = "SESSIONID=; Path=/; HttpOnly; Max-Age=0";
 
