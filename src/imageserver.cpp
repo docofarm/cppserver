@@ -381,7 +381,8 @@ void sessionClear()
     }
 }
 
-int main(){
+void setupRoutes()
+{
     router["GET /"] = [](const HttpRequest& req)
     {
         bool ok = false;
@@ -395,19 +396,22 @@ int main(){
             res.body = "File not Found";
             res.headers["Content-Type"] = "text/plain";
         }
-        else{
+        else
+        {
             res.body = content;
             res.headers["Content-Type"] = "text/html";
         }
+
         res.headers["Content-Length"] = std::to_string(res.body.size());
         return res;
     };
+
     router["GET /first"] = [](const HttpRequest& req)
     {
         HttpResponse res;
 
         std::string sessionId = getSessionIdFromCookie(req);
-        
+
         if(!sessionManager.isValid(sessionId))
         {
             res.statusCode = 401;
@@ -417,24 +421,32 @@ int main(){
             res.headers["Content-Length"] = std::to_string(res.body.size());
             return res;
         }
+
         res.body = "First Page You Login Success";
         res.headers["Content-Type"] = "text/plain";
         res.headers["Content-Length"] = std::to_string(res.body.size());
         return res;
     };
+
     router["POST /login"] = [](const HttpRequest& req)
     {
         HttpResponse res;
-        
+
         std::string id;
         std::string pw;
 
         size_t idPos = req.body.find("id=");
         size_t pwPos = req.body.find("pw=");
 
-        if(idPos != std::string::npos && pwPos != std::string::npos){
+        if(idPos != std::string::npos && pwPos != std::string::npos)
+        {
             size_t idEnd = req.body.find("&", idPos);
-            id = req.body.substr(idPos + 3, idEnd - (idPos + 3));
+
+            if(idEnd == std::string::npos)
+                id = req.body.substr(idPos + 3);
+            else
+                id = req.body.substr(idPos + 3, idEnd - (idPos + 3));
+
             pw = req.body.substr(pwPos + 3);
         }
 
@@ -443,9 +455,8 @@ int main(){
             res.statusCode = 200;
             res.statusMessage = "OK";
             res.body = "{\"status\":\"login success\",\"message\":\"login success\"}";
-           
-            std::string sessionId = sessionManager.createSession(id);
 
+            std::string sessionId = sessionManager.createSession(id);
             res.headers["Set-Cookie"] = "SESSIONID=" + sessionId + "; Path=/; HttpOnly";
         }
         else
@@ -461,24 +472,27 @@ int main(){
         return res;
     };
 
-    router["GET /logout"] = [](const HttpRequest& req)
+    router["GET /logout"] =[](const HttpRequest& req)
     {
         HttpResponse res;
 
         std::string sessionId = getSessionIdFromCookie(req);
-
         sessionManager.remove(sessionId);
 
-        res.headers["Set-Cookie"] = "SESSIONID=; Path=/; HttpOnly; Max-Age=0";
+        res.headers["Set-Cookie"] = "SESSIONID=; PATH=/; HttpOnly; Max-Age=0";
 
         res.statusCode = 302;
         res.statusMessage = "Found";
         res.headers["Location"] = "/login.html";
         res.body = "";
-        res.headers["Content-Length"] = "0";
+        res.headers["Content-Lenght"] = "0";
 
         return res;
     };
+}
+
+int main(){
+    setupRoutes();
     
     WSADATA wsaData;
 
