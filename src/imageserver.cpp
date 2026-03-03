@@ -125,24 +125,6 @@ public:
 
 SessionManager sessionManager;
 
-
-std::string getSessionIdFromCookie(const HttpRequest& req)
-{
-    auto it = req.headers.find("Cookie");
-    if(it == req.headers.end())
-    {
-        return "";
-    }
-    std::string cookie = it->second;
-
-    size_t pos = cookie.find("SESSIONID=");
-    if(pos == std::string::npos)
-    {
-        return "";
-    }
-    return cookie.substr(pos + 10);
-}
-
 std::string readFile(const std::string& path, bool& success)
 {
     std::ifstream file(path, std::ios::binary);
@@ -171,10 +153,78 @@ std::string getContentType(const std::string& path)
     return "text/plain";
 }
 
-
 using Handler = std::function<HttpResponse(const HttpRequest&)>;
 
-std::map<std::string, Handler> router;
+class Router
+{
+private:
+    std::map<std::string, Handler> routes;
+
+public:
+    void addRoute(const std::string& method, const std::string& path, Handler handler)
+    {
+        std::string key = method + " " + path;
+        routes[key] = handler;
+    }
+
+    HttpResponse route(const HttpRequest& req)
+    {
+        std::string key = req.method + " " + req.path;
+
+        //라우트 먼저 검사
+        if(routes.find(key) != routes.end())
+        {
+            return routes[key](req);
+        }
+
+        //Get 요청 static 시도
+        if(req.method == "GET")
+        {
+            std::string filePath = "static" + req.path;
+
+            bool ok = false;
+            std::string content = readFile(filePath, ok);
+
+            if(ok)
+            {
+                HttpResponse res;
+                res.body = content;
+                res.headers["Content-Type"] = getContentType(filePath);
+                res.headers["Content-Length"] = std::to_string(res.body.size());
+                return res;
+            }
+        }
+
+        //다 없으면 404
+        HttpResponse res;
+        res.statusCode = 404;
+        res.statusMessage = "Not found";
+        res.body = "404 Not Found";
+        res.headers["Content-Type"] = "text/plain";
+        res.headers["Content-Length"] = std::to_string(res.body.size());
+
+        return res;
+    }
+};
+
+Router router;
+
+std::string getSessionIdFromCookie(const HttpRequest& req)
+{
+    auto it = req.headers.find("Cookie");
+    if(it == req.headers.end())
+    {
+        return "";
+    }
+    std::string cookie = it->second;
+
+    size_t pos = cookie.find("SESSIONID=");
+    if(pos == std::string::npos)
+    {
+        return "";
+    }
+    return cookie.substr(pos + 10);
+}
 
 
 std::string makeResponse(
@@ -189,59 +239,6 @@ std::string makeResponse(
         "Connection: close\r\n"
         "\r\n" + 
         body;
-}
-
-HttpResponse routeRequest(const HttpRequest& req)
-{
-    std::string key = req.method + " " + req.path;
-
-    if(router.find(key) != router.end())
-    {
-        return router[key](req);
-    }
-
-    if(req.method == "GET")
-    {
-        //디렉토리 트레버셜 방어 ".."  경로 탈출 공격
-        if(req.path.find("..") != std::string::npos)
-        {
-            HttpResponse res;
-            res.statusCode = 403;
-            res.statusMessage = "Forbidden";
-            res.body = "403 Forbidden";
-            res.headers["Content-Type"] = "text/plain";
-            res.headers["Content-Length"] = std::to_string(res.body.size());
-            return res;
-        }
-        HttpResponse res;
-
-        bool fileExist = false;
-        std::string filePath = "static" + req.path;
-
-        if(req.path == "/")
-        {
-            filePath = "static/index.html";
-        }
-
-        std::string content = readFile(filePath, fileExist);
-        
-        if(fileExist)
-        {
-            res.body = content;
-            res.headers["Content-Type"] = getContentType(filePath);
-            res.headers["Content-Length"] = std::to_string(res.body.size());
-            return res;
-        }
-    }
-
-    HttpResponse res;
-    res.statusCode = 404;
-    res.statusMessage ="Not Found";
-    res.body = "404 Not Found";
-    res.headers["Content-Type"] = "text/plain";
-    res.headers["Content-Length"] = std::to_string(res.body.size());
-
-    return res;
 }
 
 HttpRequest parseHttpRequest(const std::string& raw)
@@ -356,7 +353,7 @@ void handleClient(SOCKET clientSock){
             std::cout << "Body: " << req.body << "\n";
         }
 
-        HttpResponse res = routeRequest(req);
+        HttpResponse res = router.route(req);
 
         std::string responseStr = serializeResponse(res);
         std::cout << "Body Length: " << req.body.size() << "\n";
@@ -383,7 +380,7 @@ void sessionClear()
 
 void setupRoutes()
 {
-    router["GET /"] = [](const HttpRequest& req)
+    router.addRoute("GET", "/", [](const HttpRequest& req)
     {
         bool ok = false;
         std::string content = readFile("static/index.html", ok);
@@ -404,9 +401,9 @@ void setupRoutes()
 
         res.headers["Content-Length"] = std::to_string(res.body.size());
         return res;
-    };
+    });
 
-    router["GET /first"] = [](const HttpRequest& req)
+    router.addRoute("GET", "/first" ,[](const HttpRequest& req)
     {
         HttpResponse res;
 
@@ -426,9 +423,9 @@ void setupRoutes()
         res.headers["Content-Type"] = "text/plain";
         res.headers["Content-Length"] = std::to_string(res.body.size());
         return res;
-    };
+    });
 
-    router["POST /login"] = [](const HttpRequest& req)
+    router.addRoute("POST", "/login" ,[](const HttpRequest& req)
     {
         HttpResponse res;
 
@@ -470,25 +467,25 @@ void setupRoutes()
         res.headers["Content-Length"] = std::to_string(res.body.size());
 
         return res;
-    };
+    });
 
-    router["GET /logout"] =[](const HttpRequest& req)
+    router.addRoute("GET", "/logout" ,[](const HttpRequest& req)
     {
         HttpResponse res;
 
         std::string sessionId = getSessionIdFromCookie(req);
         sessionManager.remove(sessionId);
 
-        res.headers["Set-Cookie"] = "SESSIONID=; PATH=/; HttpOnly; Max-Age=0";
+        res.headers["Set-Cookie"] = "SESSIONID=; Path=/; HttpOnly; Max-Age=0";
 
         res.statusCode = 302;
         res.statusMessage = "Found";
         res.headers["Location"] = "/login.html";
         res.body = "";
-        res.headers["Content-Lenght"] = "0";
+        res.headers["Content-Length"] = "0";
 
         return res;
-    };
+    });
 }
 
 int main(){
