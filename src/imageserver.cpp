@@ -153,7 +153,44 @@ std::string getContentType(const std::string& path)
     return "text/plain";
 }
 
+std::string getSessionIdFromCookie(const HttpRequest& req)
+{
+    auto it = req.headers.find("Cookie");
+    if(it == req.headers.end())
+    {
+        return "";
+    }
+    std::string cookie = it->second;
+
+    size_t pos = cookie.find("SESSIONID=");
+    if(pos == std::string::npos)
+    {
+        return "";
+    }
+    return cookie.substr(pos + 10);
+}
+
 using Handler = std::function<HttpResponse(const HttpRequest&)>;
+
+Handler requireAuth(Handler next)
+{
+    return [next](const HttpRequest& req) -> HttpResponse
+    {
+        std::string sessionId = getSessionIdFromCookie(req);
+
+        if(!sessionManager.isValid(sessionId))
+        {
+            HttpResponse res;
+            res.statusCode = 401;
+            res.statusMessage = "Unauthorized";
+            res.body = "Login required or session expired";
+            res.headers["Content-Type"] = "text/plain";
+            res.headers["Content-Length"] = std::to_string(res.body.size());
+            return res;
+        }
+        return next(req);
+    };
+}
 
 class Router
 {
@@ -208,23 +245,6 @@ public:
 };
 
 Router router;
-
-std::string getSessionIdFromCookie(const HttpRequest& req)
-{
-    auto it = req.headers.find("Cookie");
-    if(it == req.headers.end())
-    {
-        return "";
-    }
-    std::string cookie = it->second;
-
-    size_t pos = cookie.find("SESSIONID=");
-    if(pos == std::string::npos)
-    {
-        return "";
-    }
-    return cookie.substr(pos + 10);
-}
 
 
 std::string makeResponse(
@@ -403,27 +423,14 @@ void setupRoutes()
         return res;
     });
 
-    router.addRoute("GET", "/first" ,[](const HttpRequest& req)
-    {
+    router.addRoute("GET", "/first", requireAuth([](const HttpRequest& req){  
         HttpResponse res;
-
-        std::string sessionId = getSessionIdFromCookie(req);
-
-        if(!sessionManager.isValid(sessionId))
-        {
-            res.statusCode = 401;
-            res.statusMessage = "Unauthorized";
-            res.body = "Login required or session expired";
-            res.headers["Content-Type"] = "text/plain";
-            res.headers["Content-Length"] = std::to_string(res.body.size());
-            return res;
-        }
-
         res.body = "First Page You Login Success";
         res.headers["Content-Type"] = "text/plain";
         res.headers["Content-Length"] = std::to_string(res.body.size());
         return res;
-    });
+    }));
+    
 
     router.addRoute("POST", "/login" ,[](const HttpRequest& req)
     {

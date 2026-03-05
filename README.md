@@ -51,6 +51,8 @@
     - 라우트 리팩토링
 - 3/3 
     - 라우터 객체화
+- 3/5
+    - 라우트 미들웨어
 ## 컴파일
     g++ imageserver.cpp -o server.exe -lws2_32
 
