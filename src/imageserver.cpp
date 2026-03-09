@@ -139,7 +139,7 @@ std::string readFile(const std::string& path, bool& success)
 
     success = true;
     return ss.str();
-}
+};
 
 std::string getContentType(const std::string& path)
 {
@@ -151,7 +151,7 @@ std::string getContentType(const std::string& path)
     if(path.find(".gif") != std::string::npos) return "image/gif";
     
     return "text/plain";
-}
+};
 
 std::string getSessionIdFromCookie(const HttpRequest& req)
 {
@@ -168,11 +168,24 @@ std::string getSessionIdFromCookie(const HttpRequest& req)
         return "";
     }
     return cookie.substr(pos + 10);
-}
+};
 
 using Handler = std::function<HttpResponse(const HttpRequest&)>;
+using Middleware = std::function<Handler(Handler)>;
 
-Handler requireAuth(Handler next)
+Handler chain(std::vector<Middleware> middlewares, Handler finalHandler)
+{
+    Handler current = finalHandler;
+
+    for(auto it= middlewares.rbegin(); it != middlewares.rend(); ++it)
+    {
+        current = (*it)(current);
+    }
+
+    return current;
+};
+
+Middleware requireAuth = [](Handler next)
 {
     return [next](const HttpRequest& req) -> HttpResponse
     {
@@ -190,7 +203,16 @@ Handler requireAuth(Handler next)
         }
         return next(req);
     };
-}
+};
+
+Middleware logging = [](Handler next)
+{
+    return [next](const HttpRequest& req) -> HttpResponse
+    {
+        std::cout << "[LOG]" << req.method << " " << req.path << "\n";
+        return next(req);
+    };
+};
 
 class Router
 {
@@ -423,7 +445,7 @@ void setupRoutes()
         return res;
     });
 
-    router.addRoute("GET", "/first", requireAuth([](const HttpRequest& req){  
+    router.addRoute("GET", "/first", chain({logging, requireAuth}, [](const HttpRequest& req){  
         HttpResponse res;
         res.body = "First Page You Login Success";
         res.headers["Content-Type"] = "text/plain";

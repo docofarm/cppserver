@@ -53,6 +53,8 @@
     - 라우터 객체화
 - 3/5
     - 라우트 미들웨어
+- 3/9
+    - 미들웨어 체인
 ## 컴파일
     g++ imageserver.cpp -o server.exe -lws2_32
 
