@@ -242,7 +242,7 @@ public:
         {
             std::string filePath;
 
-            if(req.path.find("/uploads/") == 0)
+            if(req.path.find("/upload/") == 0)
             {
                 filePath = req.path.substr(1);
             }
@@ -344,7 +344,13 @@ HttpRequest parseHttpRequest(const std::string& raw)
     {
         int contentLength = std::stoi(req.headers["Content-Length"]);
         req.body.resize(contentLength);
-        requestStream.read(&req.body[0], contentLength);
+        //requestStream.read(&req.body[0], contentLength);
+        size_t bodyStart = raw.find("\r\n\r\n");
+        if(bodyStart != std::string::npos)
+        {
+            bodyStart += 4;
+            req.body = raw.substr(bodyStart);
+        }
     }
 
     return req;
@@ -408,6 +414,7 @@ std::string readHttpRequest(SOCKET sock)
 
     int contentLength = 0;
     bool headerParsed = false;
+    size_t headerEnd = 0;
 
     while(true)
     {
@@ -422,43 +429,54 @@ std::string readHttpRequest(SOCKET sock)
 
         if(!headerParsed)
         {
-            size_t headerEnd = request.find("\r\n\r\n");
+            headerEnd = request.find("\r\n\r\n");
 
             if(headerEnd != std::string::npos)
             {
                 headerParsed = true;
 
-                size_t pos = request.find("Content-Length");
+                size_t pos = request.find("Content-Length:");
                 if(pos != std::string::npos)
                 {
-                    contentLength = std::stoi(request.substr(pos + 15));
+                    size_t end = request.find("\r\n", pos);
+                    std::string value = request.substr(pos + 15, end - (pos + 15));
+                    contentLength = std::stoi(value);
+                }else{
+                    contentLength = 0;
                 }
+        }     
+    }
+    if(headerParsed)
+    {
+        size_t totalNeeded = headerEnd + 4 + contentLength;
 
-                size_t totalNeeded = headerEnd + 4 + contentLength;
-
-                if(request.size() >= totalNeeded)
-                {
-                    break;
-                }
-            }
-        }
-        else{
-            size_t headerEnd = request.find("\r\n\r\n");
-            size_t totalNeeed = headerEnd + 4 + contentLength;
-
-            if(request.size() >= totalNeeed)
-            {
-                break;
-            }
+        if(request.size() >= totalNeeded)
+        {
+            break;
         }
     }
-
+    }
     return request;
+}
+
+std::string genereateSafeFilename(const std::string& original)
+{
+    std::string ext = ".bin";
+
+    size_t dot = original.find_last_of('.');
+    if(dot != std::string::npos)
+    {
+        ext = original.substr(dot);
+    }
+
+    auto now = std::chrono::system_clock::now().time_since_epoch().count();
+
+    return std::to_string(now) + ext;
 }
 
 bool saveFile(const std::string& filename, const std::string& data)
 {
-    std::string path = "uploads/" + filename;
+    std::string path = "upload/" + filename;
 
     std::ofstream file(path, std::ios::binary);
 
@@ -513,6 +531,11 @@ bool parseMultipartImage(const HttpRequest& req, std::string& filename, std::str
     size_t dataStart = headerEnd + 4;
     size_t dataEnd = req.body.find(boundary, dataStart);
 
+    if(dataStart >= dataEnd)
+    {
+        return false;
+    }
+
     if(dataEnd == std::string::npos)
     {
         return false;
@@ -537,6 +560,11 @@ void handleClient(SOCKET clientSock){
     {
 
         HttpRequest req = parseHttpRequest(rawRequest);
+
+        std::cout << "=== UPLOAD DEBUG ===\n";
+        std::cout << "RAW SIZE: " << rawRequest.size() << "\n";
+        std::cout << "BODY SIZE: " << req.body.size() << "\n";
+        std::cout << "===================\n";
 
         std::cout << "Method: " << req.method << "\n";
         std::cout << "Path: " << req.path << "\n";
@@ -675,12 +703,13 @@ void setupRoutes()
         return res;
     });
 
-    router.addRoute("POST", "/uploads", [](const HttpRequest& req)
+    router.addRoute("POST", "/upload", [](const HttpRequest& req)
     {
         HttpResponse res;
 
         std::string filename;
         std::string fileData;
+        std::string safeName = genereateSafeFilename(filename);
 
         if(!parseMultipartImage(req, filename, fileData))
         {
@@ -694,9 +723,11 @@ void setupRoutes()
             res.body = "Only image allowed";
         }else
         {
-            if(saveFile(filename, fileData))
+            if(saveFile(safeName, fileData))
             {
                 res.body = "Upload Success";
+                std::cout << "Original: " << filename << "\n";
+                std::cout << "Saved as: " << safeName << "\n";
             }else
             {
                 res.statusCode = 500;
@@ -715,12 +746,12 @@ void setupRoutes()
         std::string html = "<html><body>";
         html += "<h1>Image Gallery</h1>";
 
-        for(const auto& entry : std::filesystem::directory_iterator("uploads"))
+        for(const auto& entry : std::filesystem::directory_iterator("upload"))
         {
             std::string filename = entry.path().filename().string();
 
             html += "<div>";
-            html += "<img src=\"/uploads/" + filename + "\" width=\"200\">";
+            html += "<img src=\"/upload/" + filename + "\" width=\"200\">";
             html += "</div>";
         }
 
