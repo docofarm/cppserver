@@ -229,7 +229,14 @@ public:
 
     HttpResponse route(const HttpRequest& req)
     {
-        std::string key = req.method + " " + req.path;
+        std::string cleanPath = req.path;
+        size_t qPos = cleanPath.find("?");
+        if(qPos != std::string::npos)
+        {
+            cleanPath = cleanPath.substr(0, qPos);
+        }
+
+        std::string key = req.method + " " + cleanPath;
 
         //라우트 먼저 검사
         if(routes.find(key) != routes.end())
@@ -242,13 +249,13 @@ public:
         {
             std::string filePath;
 
-            if(req.path.find("/upload/") == 0)
+            if(cleanPath.find("/upload/") == 0)
             {
-                filePath = req.path.substr(1);
+                filePath = cleanPath.substr(1);
             }
             else
             {
-                filePath = "static" + req.path;
+                filePath = "static" + cleanPath;
             }
 
             bool ok = false;
@@ -349,7 +356,7 @@ HttpRequest parseHttpRequest(const std::string& raw)
         if(bodyStart != std::string::npos)
         {
             bodyStart += 4;
-            req.body = raw.substr(bodyStart);
+            req.body = raw.substr(bodyStart, contentLength);
         }
     }
 
@@ -546,6 +553,49 @@ bool parseMultipartImage(const HttpRequest& req, std::string& filename, std::str
     return true;
 }
 
+
+//post text
+int postIdCounter = 1;
+
+bool savePost(const std::string& content, int& outId)
+{
+    outId = postIdCounter++;
+
+    std::string filename = "posts/" + std::to_string(outId) + ".txt";
+
+    std::ofstream file(filename);
+    if(!file.is_open())
+    {
+        return false;
+    }
+
+    file << content;
+    file.close();
+
+    return true;
+}
+
+std::string getQueryParam(const std::string& path, const std::string& key)
+{
+    size_t qPos = path.find("?");
+    if(qPos == std::string::npos) return "";
+
+    std::string query = path.substr(qPos + 1);
+
+    size_t keyPos = query.find(key + "=");
+    if(keyPos == std::string::npos) return "";
+
+    size_t valueStart = keyPos + key.size() + 1;
+    size_t valueEnd = query.find("&", valueStart);
+
+    if(valueEnd == std::string::npos)
+    {
+        return query.substr(valueStart);
+    }
+
+    return query.substr(valueStart, valueEnd - valueStart);
+}
+
 void handleClient(SOCKET clientSock){
 
     {
@@ -709,7 +759,6 @@ void setupRoutes()
 
         std::string filename;
         std::string fileData;
-        std::string safeName = genereateSafeFilename(filename);
 
         if(!parseMultipartImage(req, filename, fileData))
         {
@@ -723,6 +772,8 @@ void setupRoutes()
             res.body = "Only image allowed";
         }else
         {
+            std::string safeName = genereateSafeFilename(filename);
+
             if(saveFile(safeName, fileData))
             {
                 res.body = "Upload Success";
@@ -758,6 +809,78 @@ void setupRoutes()
         html += "</body></html>";
 
         res.body = html;
+        res.headers["Content-Type"] = "text/html";
+        res.headers["Content-Length"] = std::to_string(res.body.size());
+
+        return res;
+    });
+
+    router.addRoute("POST", "/post", [](const HttpRequest& req)
+    {
+        HttpResponse res;
+
+        int id;
+        if(savePost(req.body, id))
+        {
+            res.body = "Post Saved. ID=" + std::to_string(id);
+        }
+        else
+        {
+            res.statusCode = 500;
+            res.body = "Save failed";
+        }
+
+        res.headers["Content-Type"] = "text/plain";
+        res.headers["Content-Length"] = std::to_string(res.body.size());
+
+        return res;
+    });
+
+    router.addRoute("GET", "/posts", [](const HttpRequest& req){
+        HttpResponse res;
+
+        std::string html = "<html><body><h1>Post</h1>";
+
+        for(const auto& entry : std::filesystem::directory_iterator("posts"))
+        {
+            std::string filename = entry.path().filename().string();
+
+            std::string id = filename.substr(0, filename.find("."));
+
+            html += "<div>";
+            html += "<a href=\"/post?id=" + id + "\">Post " + id + "</a>";
+            html += "</div>";
+        }
+
+        html += "</body></html>";
+
+        res.body = html;
+        res.headers["Content-Type"] = "text/html";
+        res.headers["Content-Length"] = std::to_string(res.body.size());
+
+        return res;
+    });
+
+    router.addRoute("GET", "/post", [](const HttpRequest& req){
+        HttpResponse res;
+
+        std::string id = getQueryParam(req.path, "id");
+
+        std::string filename = "posts/" + id + ".txt";
+
+        bool ok;
+        std::string content = readFile(filename, ok);
+
+        if(!ok)
+        {
+            res.statusCode = 404;
+            res.body = "Post not found";
+        }
+        else
+        {
+            res.body = "<html><body><pre>" + content + "</pre></body></html>";
+        }
+
         res.headers["Content-Type"] = "text/html";
         res.headers["Content-Length"] = std::to_string(res.body.size());
 
